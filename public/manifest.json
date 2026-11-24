@@ -1,0 +1,10 @@
+{
+  "name": "MemberLedger",
+  "short_name": "MemberLedger",
+  "description": "Member KYC registry, ₹100 monthly dues tracker, and summary receipt portal.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1e3a8a",
+  "orientation": "portrait-primary"
+}

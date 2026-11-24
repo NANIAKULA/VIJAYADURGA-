@@ -1,0 +1,208 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Identity & Format Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'naniakulaat16@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // Validation Helpers (Strict Blueprint Sync)
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'createdAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidMember(data) {
+      return data.keys().hasAll([
+          'memberCode', 'fullName', 'email', 'phone',
+          'aadhaarNumber', 'panNumber', 'voterId',
+          'joinedMonth', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'memberCode', 'fullName', 'email', 'phone',
+          'aadhaarNumber', 'panNumber', 'voterId',
+          'address', 'joinedMonth', 'status', 'uid',
+          'createdAt', 'updatedAt'
+        ])
+        && data.memberCode is string && data.memberCode.size() >= 3 && data.memberCode.size() <= 20 && data.memberCode.matches('^[A-Z0-9\\-]+$')
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.phone is string && data.phone.size() >= 8 && data.phone.size() <= 20
+        && data.aadhaarNumber is string && data.aadhaarNumber.size() == 12 && data.aadhaarNumber.matches('^[0-9]{12}$')
+        && data.panNumber is string && data.panNumber.size() == 10 && data.panNumber.matches('^[A-Z]{5}[0-9]{4}[A-Z]$')
+        && data.voterId is string && data.voterId.size() >= 6 && data.voterId.size() <= 20 && data.voterId.matches('^[A-Z0-9]+$')
+        && (!('address' in data) || (data.address is string && data.address.size() <= 300))
+        && data.joinedMonth is string && data.joinedMonth.size() == 7 && data.joinedMonth.matches('^[0-9]{4}-[0-9]{2}$')
+        && data.status in ['active', 'inactive']
+        && (!('uid' in data) || (data.uid is string && data.uid.size() <= 128))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMonthlyPayment(data) {
+      return data.keys().hasAll([
+          'memberId', 'memberCode', 'memberName', 'memberEmail',
+          'month', 'amount', 'status', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'memberId', 'memberCode', 'memberName', 'memberEmail',
+          'memberUid', 'month', 'amount', 'status',
+          'paymentMode', 'receiptNumber', 'notes', 'paidAt', 'updatedAt'
+        ])
+        && isValidId(data.memberId)
+        && data.memberCode is string && data.memberCode.size() >= 3 && data.memberCode.size() <= 20 && data.memberCode.matches('^[A-Z0-9\\-]+$')
+        && data.memberName is string && data.memberName.size() >= 2 && data.memberName.size() <= 120
+        && data.memberEmail is string && data.memberEmail.size() >= 3 && data.memberEmail.size() <= 160
+        && (!('memberUid' in data) || (data.memberUid is string && data.memberUid.size() <= 128))
+        && data.month is string && data.month.size() == 7 && data.month.matches('^[0-9]{4}-[0-9]{2}$')
+        && data.amount is number && data.amount == 100
+        && data.status in ['paid', 'pending']
+        && (!('paymentMode' in data) || data.paymentMode in ['UPI', 'Cash', 'Bank Transfer', 'Online'])
+        && (!('receiptNumber' in data) || (data.receiptNumber is string && data.receiptNumber.size() <= 40))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 200))
+        && (!('paidAt' in data) || (data.paidAt is string && data.paidAt.size() <= 40))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceSyncConfig(data) {
+      return data.keys().hasAll(['spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle', 'updatedAt'])
+        && data.keys().hasOnly([
+          'spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle',
+          'lastSyncedAt', 'lastBackupFileId', 'lastBackupAt', 'updatedAt'
+        ])
+        && data.spreadsheetId is string && data.spreadsheetId.size() >= 1 && data.spreadsheetId.size() <= 160
+        && data.spreadsheetUrl is string && data.spreadsheetUrl.size() >= 1 && data.spreadsheetUrl.size() <= 300
+        && data.spreadsheetTitle is string && data.spreadsheetTitle.size() >= 1 && data.spreadsheetTitle.size() <= 120
+        && (!('lastSyncedAt' in data) || (data.lastSyncedAt is string && data.lastSyncedAt.size() <= 40))
+        && (!('lastBackupFileId' in data) || (data.lastBackupFileId is string && data.lastBackupFileId.size() <= 160))
+        && (!('lastBackupAt' in data) || (data.lastBackupAt is string && data.lastBackupAt.size() <= 40))
+        && data.updatedAt is timestamp;
+    }
+
+    // Admins Collection
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isAdmin() || (isVerifiedUser() && request.auth.uid == adminUid));
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(adminUid)
+        && isAdmin()
+        && isValidAdminUser(incoming())
+        && incoming().uid == adminUid
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(adminUid)
+        && isAdmin()
+        && isValidAdminUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName']);
+      allow delete: if isValidId(adminUid) && isBootstrappedAdmin();
+    }
+
+    // Members Collection (100 Members KYC)
+    match /members/{memberId} {
+      allow get: if isValidId(memberId) && (
+        isAdmin()
+        || (isVerifiedUser() && (existing().email == request.auth.token.email || ('uid' in existing() && existing().uid == request.auth.uid)))
+      );
+      allow list: if isBootstrappedAdmin()
+        || (isVerifiedUser() && (resource.data.email == request.auth.token.email || ('uid' in resource.data && resource.data.uid == request.auth.uid)));
+      allow create: if isValidId(memberId)
+        && isAdmin()
+        && isValidMember(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(memberId)
+        && isAdmin()
+        && isValidMember(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'memberCode', 'fullName', 'email', 'phone',
+          'aadhaarNumber', 'panNumber', 'voterId',
+          'address', 'joinedMonth', 'status', 'uid', 'updatedAt'
+        ]);
+      allow delete: if isValidId(memberId) && isAdmin();
+    }
+
+    // Monthly Payments Collection (₹100 / month)
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && (
+        isAdmin()
+        || (isVerifiedUser() && (existing().memberEmail == request.auth.token.email || ('memberUid' in existing() && existing().memberUid == request.auth.uid)))
+      );
+      allow list: if isBootstrappedAdmin()
+        || (isVerifiedUser() && (resource.data.memberEmail == request.auth.token.email || ('memberUid' in resource.data && resource.data.memberUid == request.auth.uid)));
+      allow create: if isValidId(paymentId)
+        && isAdmin()
+        && isValidMonthlyPayment(incoming())
+        && exists(/databases/$(database)/documents/members/$(incoming().memberId))
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(paymentId)
+        && isAdmin()
+        && isValidMonthlyPayment(incoming())
+        && incoming().memberId == existing().memberId
+        && incoming().month == existing().month
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'memberCode', 'memberName', 'memberEmail', 'memberUid',
+          'amount', 'status', 'paymentMode', 'receiptNumber', 'notes', 'paidAt', 'updatedAt'
+        ]);
+      allow delete: if isValidId(paymentId) && isAdmin();
+    }
+
+    // Admin Settings Collection (Google Sheets & Drive Sync Config)
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(settingId)
+        && isAdmin()
+        && isValidWorkspaceSyncConfig(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId)
+        && isAdmin()
+        && isValidWorkspaceSyncConfig(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle',
+          'lastSyncedAt', 'lastBackupFileId', 'lastBackupAt', 'updatedAt'
+        ]);
+      allow delete: if isValidId(settingId) && isAdmin();
+    }
+  }
+}

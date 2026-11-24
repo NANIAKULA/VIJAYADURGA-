@@ -1,0 +1,8 @@
+{
+  "appId": "com.memberledger.app",
+  "appName": "MemberLedger",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
